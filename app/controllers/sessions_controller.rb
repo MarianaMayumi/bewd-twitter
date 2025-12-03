@@ -1,37 +1,49 @@
 class SessionsController < ApplicationController
   skip_before_action :verify_authenticity_token
 
+  # POST /sessions
   def create
-    user = User.find_by(username: params[:user][:username])
+    username = params.dig(:user, :username)
+    password = params.dig(:user, :password)
 
-    if user && user.password == params[:user][:password]
-      session_record = Session.create(user: user)
-      cookies.permanent[:twitter_session_token] = session_record.token
+    user = User.find_by(username: username)
 
-      render json: { message: "Logged in" }
+    if user && user.authenticate(password)
+      session_record = user.sessions.create
+      cookies.signed['twitter_session_token'] = session_record.token
+
+      render json: { success: true }
     else
-      render json: { message: "Invalid username or password" }, status: 401
+      render json: { success: false }
     end
   end
 
+  # GET /authenticated
   def authenticated
-    session_record = Session.find_by(token: cookies[:twitter_session_token])
+    token = cookies.signed['twitter_session_token']
+    session_record = Session.find_by(token: token)
 
     if session_record
-      render json: { authenticated: true, user_id: session_record.user_id }
+      render json: {
+        authenticated: true,
+        username: session_record.user.username
+      }
     else
       render json: { authenticated: false }
     end
   end
 
+  # DELETE /sessions
   def destroy
-    session_record = Session.find_by(token: cookies[:twitter_session_token])
+    token = cookies.signed['twitter_session_token']
+    session_record = Session.find_by(token: token)
 
     if session_record
-      session_record.destroy
-      render json: { message: "Logged out" }
+      session_record.user.sessions.destroy_all
+      render json: { success: true }
     else
-      render json: { message: "No session found" }, status: 404
+      render json: { success: false }
     end
   end
 end
+

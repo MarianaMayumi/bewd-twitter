@@ -1,56 +1,68 @@
 class TweetsController < ApplicationController
   skip_before_action :verify_authenticity_token
 
+  # POST /tweets
   def create
-    user = current_user
-    return render json: { message: "Not authenticated" }, status: 401 unless user
+    token = cookies.signed['twitter_session_token']
+    session_record = Session.find_by(token: token)
 
-    tweet = user.tweets.new(tweet_params)
+    return render json: { success: false } unless session_record
 
-    if tweet.save
-      render json: { message: "Tweet created" }
-    else
-      render json: { errors: tweet.errors.full_messages }, status: 422
-    end
+    tweet = session_record.user.tweets.create(message: params[:tweet][:message])
+
+    render json: {
+      tweet: {
+        username: session_record.user.username,
+        message: tweet.message
+      }
+    }
   end
 
-  def destroy
-    user = current_user
-    return render json: { message: "Not authenticated" }, status: 401 unless user
-
-    tweet = user.tweets.find_by(id: params[:id])
-
-    if tweet
-      tweet.destroy
-      render json: { message: "Tweet deleted" }
-    else
-      render json: { message: "Tweet not found" }, status: 404
-    end
-  end
-
+  # GET /tweets
   def index
-    @tweets = Tweet.includes(:user).order(created_at: :desc)
+    tweets = Tweet.includes(:user).order(created_at: :desc)
+
+    render json: {
+      tweets: tweets.map do |t|
+        {
+          id: t.id,
+          username: t.user.username,
+          message: t.message
+        }
+      end
+    }
   end
 
+  # DELETE /tweets/:id
+  def destroy
+    token = cookies.signed['twitter_session_token']
+    session_record = Session.find_by(token: token)
+
+    return render json: { success: false } unless session_record
+
+    tweet = Tweet.find_by(id: params[:id])
+
+    if tweet && tweet.user_id == session_record.user_id
+      tweet.destroy
+      render json: { success: true }
+    else
+      render json: { success: false }
+    end
+  end
+
+  # GET /users/:username/tweets
   def index_by_user
     user = User.find_by(username: params[:username])
+    tweets = user ? user.tweets.order(created_at: :desc) : []
 
-    if user
-      @tweets = user.tweets.includes(:user).order(created_at: :desc)
-      render :index
-    else
-      render json: { message: "User not found" }, status: 404
-    end
-  end
-
-  private
-
-  def current_user
-    session_record = Session.find_by(token: cookies[:twitter_session_token])
-    session_record&.user
-  end
-
-  def tweet_params
-    params.require(:tweet).permit(:message)
+    render json: {
+      tweets: tweets.map do |t|
+        {
+          id: t.id,
+          username: t.user.username,
+          message: t.message
+        }
+      end
+    }
   end
 end
